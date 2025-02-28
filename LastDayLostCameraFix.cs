@@ -1,11 +1,12 @@
 using HarmonyLib;
 using UnityEngine;
+using System.Collections;
 using Zorro.Core;
 using Photon.Pun;
 
 namespace LastDayLostCameraFix
 {
-    [ContentWarningPlugin("LastDayLostCameraFix", "1.0", vanillaCompatible: false)]
+    [ContentWarningPlugin("LastDayLostCameraFix", "2.0", vanillaCompatible: false)]
     public class LastDayLostCameraFix
     {
         static LastDayLostCameraFix()
@@ -36,6 +37,13 @@ namespace LastDayLostCameraFix
             {
                 LogFile.LogMessage("Патч InitSurface вызван");
 
+                __instance.StartCoroutine(DelayCoroutine(__instance));
+
+                return false;
+            }
+
+            private static IEnumerator DelayCoroutine(SurfaceNetworkHandler __instance)
+            {
                 LogFile.LogMessage("Инициализация поверхности");
                 Debug.Log("Initializing Surface");
                 __instance.m_View = __instance.GetComponent<PhotonView>();
@@ -56,6 +64,7 @@ namespace LastDayLostCameraFix
                         PhotonNetwork.CurrentRoom.IsOpen = true;
                         PhotonNetwork.CurrentRoom.IsVisible = true;
                         LogFile.LogMessage($"Комната открыта: {PhotonNetwork.CurrentRoom.IsOpen}, Комната видна: {PhotonNetwork.CurrentRoom.IsVisible}");
+
                         PhotonGameLobbyHandler.Instance.SetCurrentObjective(new InviteFriendsObjective());
                         LogFile.LogMessage("Установлена цель: InviteFriendsObjective.");
                         __instance.CheckSave();
@@ -105,6 +114,12 @@ namespace LastDayLostCameraFix
                         RichPresenceHandler.SetPresenceState(RichPresenceState.Status_AtHouse);
                         if (PhotonNetwork.IsMasterClient)
                         {
+                            /*===========================================*/
+                            LogFile.LogMessage("Задержка началась...");
+                            yield return new WaitForSeconds(1f);
+                            LogFile.LogMessage("Задержка завершена.");
+                            /*===========================================*/
+
                             LogFile.LogMessage("Являемся MasterClient, проверяем наличие камеры.");
                             SurfaceNetworkHandler.ReturnedFromLostWorldWithCamera = __instance.CheckIfCameraIsPresent(includeBrokencamera: true);
                             LogFile.LogMessage($"Наличие камеры после возвращения: {SurfaceNetworkHandler.ReturnedFromLostWorldWithCamera}");
@@ -120,7 +135,7 @@ namespace LastDayLostCameraFix
                                     if (SurfaceNetworkHandler.RoomStats.IsQuotaDay && !SurfaceNetworkHandler.RoomStats.CalculateIfReachedQuota())
                                     {
                                         LogFile.LogMessage("Сегодня день квоты и квота не выполнена, вызываем NextDay.");
-                                        //__instance.NextDay();
+                                        __instance.NextDay();
                                     }
                                 }
                             }
@@ -150,8 +165,6 @@ namespace LastDayLostCameraFix
                     LogFile.LogMessage("Квота не провалена, инициализируем ShopHandler.");
                     __instance.ShopHandler.InitShopHandler();
                 }
-
-                return false;
             }
         }
 
