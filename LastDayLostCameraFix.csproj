@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>netstandard2.1</TargetFramework>
+        <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <LangVersion>latest</LangVersion>
+        <CWDir Condition=" '$(CWDir)' == '' ">D:\SteamLibrary\steamapps\common\Content Warning</CWDir>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Make internal members appear to be public, able to be accessed without reflection -->
+        <PackageReference Include="Krafs.Publicizer" Version="2.3.0"/>
+        <!-- Alternatively, use BepInEx's Publicizer instead of Krafs -->
+        <!--<PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.1"/>-->
+        <Reference Include="$(CWDir)\Content Warning_Data\Managed\*.dll" Private="false"/>
+        <Publicize Include="Assembly-CSharp" />
+    </ItemGroup>
+
+    <Target Name="CopyOutputFileToGame" AfterTargets="Build">
+        <Copy SourceFiles="$(OutputPath)\$(AssemblyName).dll;preview.png" DestinationFolder="$(CWDir)\Plugins\$(MSBuildProjectName)"/>
+    </Target>
+
+</Project>
