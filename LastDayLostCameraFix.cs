@@ -1,181 +1,198 @@
 using HarmonyLib;
 using UnityEngine;
-using System.Collections;
 using Zorro.Core;
 using Photon.Pun;
+using System.Collections;
+using System.Reflection;
 
 namespace LastDayLostCameraFix
 {
-    [ContentWarningPlugin("LastDayLostCameraFix", "2.0", vanillaCompatible: false)]
+    [ContentWarningPlugin("LastDayLostCameraFix", "3.0", vanillaCompatible: false)]
     public class LastDayLostCameraFix
     {
+        private static readonly Harmony harmony = new Harmony("com.artkopt.LastDayLostCameraFix");
         static LastDayLostCameraFix()
         {
-            LogFile.LogMessage("Мод LastDayLostCameraFix запущен");
+            DebugCW.Log($"The 'LastDayLostCameraFix' mod has been launched");
+            ApplyPatches();
+        }
 
+        public static void ApplyPatches()
+        {
             try
             {
-                LogFile.LogMessage("Попытка применения патчей");
-
-                var harmony = new Harmony("com.artkopt.LastDayLostCameraFix");
-                harmony.PatchAll();
-
-                LogFile.LogMessage("Патчи применены.\n");
+                DebugCW.Log("Attempting to apply patches");
+                if (!Harmony.HasAnyPatches(harmony.Id))
+                {
+                    harmony.PatchAll();
+                    DebugCW.Log("Patches applied successfully");
+                }
             }
             catch (Exception ex)
             {
-                LogFile.LogMessage($"Ошибка при применении патчей: {ex.Message}");
+                DebugCW.LogException(ex);
+                DebugCW.LogError("Failed to apply patches. Mod may not work correctly.");
             }
         }
 
-        [HarmonyPatch(typeof(SurfaceNetworkHandler))]
+        [HarmonyPatch(typeof(SurfaceNetworkHandler), nameof(SurfaceNetworkHandler.InitSurface))]
         public static class Patch_InitSurface
         {
-            [HarmonyPatch(nameof(SurfaceNetworkHandler.InitSurface))]
             [HarmonyPrefix]
             static bool Prefix(SurfaceNetworkHandler __instance)
             {
-                LogFile.LogMessage("Патч InitSurface вызван");
-
-                __instance.StartCoroutine(DelayCoroutine(__instance));
-
-                return false;
-            }
-
-            private static IEnumerator DelayCoroutine(SurfaceNetworkHandler __instance)
-            {
-                LogFile.LogMessage("Инициализация поверхности");
-                Debug.Log("Initializing Surface");
-                __instance.m_View = __instance.GetComponent<PhotonView>();
-                LogFile.LogMessage($"PhotonView получен: {__instance.m_View != null}");
-
-                __instance.m_SteamLobby = MainMenuHandler.SteamLobbyHandler;
-                LogFile.LogMessage($"SteamLobbyHandler получен: {__instance.m_SteamLobby != null}");
-
-                if (SurfaceNetworkHandler.RoomStats == null)
+                try
                 {
-                    LogFile.LogMessage("RoomStatus равен null, создавая новый экземпляр.");
-                    SurfaceNetworkHandler.RoomStats = new RoomStatsHolder(__instance, SingletonAsset<BigNumbers>.Instance.StartMoney, BigNumbers.GetQuota(0), 3);
-                    LogFile.LogMessage($"RoomStats создан. StartMoney: {SingletonAsset<BigNumbers>.Instance.StartMoney}, Quota: {BigNumbers.GetQuota(0)}");
+                    DebugCW.Log("Patch 'InitSurface' called");
 
-                    if (PhotonNetwork.IsMasterClient)
+                    if (!UnityMainThreadDispatcher.Exists())
                     {
-                        LogFile.LogMessage("Являемся MasterClient.");
-                        PhotonNetwork.CurrentRoom.IsOpen = true;
-                        PhotonNetwork.CurrentRoom.IsVisible = true;
-                        LogFile.LogMessage($"Комната открыта: {PhotonNetwork.CurrentRoom.IsOpen}, Комната видна: {PhotonNetwork.CurrentRoom.IsVisible}");
+                        DebugCW.LogWarning("'UnityMainThreadDispatcher' not found...");
+                        GameObject dispatcherObj = new GameObject("UnityMainThreadDispatcher");
+                        dispatcherObj.AddComponent<UnityMainThreadDispatcher>();
+                        DebugCW.Log("'UnityMainThreadDispatcher' created and added to the scene");
+                    }
 
-                        PhotonGameLobbyHandler.Instance.SetCurrentObjective(new InviteFriendsObjective());
-                        LogFile.LogMessage("Установлена цель: InviteFriendsObjective.");
-                        __instance.CheckSave();
-                        LogFile.LogMessage("Вызван CheckSave.");
+                    Debug.Log("Initializing Surface");
+                    __instance.m_View = __instance.GetComponent<PhotonView>();
+                    __instance.m_SteamLobby = MainMenuHandler.SteamLobbyHandler;
+
+                    if (SurfaceNetworkHandler.RoomStats == null)
+                    {
+                        SurfaceNetworkHandler.RoomStats = new RoomStatsHolder(__instance, SingletonAsset<BigNumbers>.Instance.StartMoney, BigNumbers.GetQuota(0), 3);
+                        if (PhotonNetwork.IsMasterClient)
+                        {
+                            PhotonNetwork.CurrentRoom.IsOpen = true;
+                            PhotonNetwork.CurrentRoom.IsVisible = true;
+                            PhotonGameLobbyHandler.Instance.SetCurrentObjective(new InviteFriendsObjective());
+                            __instance.CheckSave();
+                        }
+                        else
+                        {
+                            __instance.OnRoomPropertiesUpdate(PhotonNetwork.CurrentRoom.CustomProperties);
+                        }
+
+                        if (SurfaceNetworkHandler.RoomStats.CurrentDay <= 1)
+                        {
+                            __instance.firstDay = true;
+                            string localizedString = LocalizationKeys.GetLocalizedString(LocalizationKeys.Keys.HelmetWelcome);
+                            HelmetText.Instance.SetHelmetText(localizedString, 3f);
+                            Debug.Log("NEW RUN!");
+                            if (PhotonNetwork.IsMasterClient)
+                            {
+                                __instance.SpawnSurfacePickups();
+                            }
+                        }
+                        else if (PhotonNetwork.IsMasterClient)
+                        {
+                            __instance.m_VideoCameraSpawner.SpawnMe(force: true);
+                        }
+
+                        if (__instance.m_SteamLobby != null)
+                        {
+                            __instance.m_SteamLobby.OpenLobby();
+                        }
+
+                        SpawnHandler.Instance.SpawnLocalPlayer(Spawns.House);
                     }
                     else
                     {
-                        LogFile.LogMessage("Не являемся MasterClient, обновляем RoomProperties.");
-                        __instance.OnRoomPropertiesUpdate(PhotonNetwork.CurrentRoom.CustomProperties);
-                    }
-
-                    if (SurfaceNetworkHandler.RoomStats.CurrentDay <= 1)
-                    {
-                        LogFile.LogMessage($"Первый день или меньше (CurrentDay: {SurfaceNetworkHandler.RoomStats.CurrentDay}).");
-                        __instance.firstDay = true;
-                        string localizedString = LocalizationKeys.GetLocalizedString(LocalizationKeys.Keys.HelmetWelcome);
-                        HelmetText.Instance.SetHelmetText(localizedString, 3f);
-                        Debug.Log("NEW RUN!");
-                        if (PhotonNetwork.IsMasterClient)
+                        Debug.Log("Should do next day here but waiting for upload?");
+                        if (TimeOfDayHandler.TimeOfDay == TimeOfDay.Evening)
                         {
-                            LogFile.LogMessage("Являемся MasterClient, вызываем SpawnSurfacePickups.");
-                            __instance.SpawnSurfacePickups();
+                            RichPresenceHandler.SetPresenceState(RichPresenceState.Status_AtHouse);
+                            if (PhotonNetwork.IsMasterClient)
+                            {
+                                CheckCameraOnMasterClient(__instance);
+                            }
+
+                            if (!Player.justDied && !__instance.m_FailedQuota)
+                            {
+                                SpawnHandler.Instance.SpawnLocalPlayer(Spawns.DiveBell);
+                            }
                         }
                     }
-                    else if (PhotonNetwork.IsMasterClient)
+
+                    if (!__instance.m_FailedQuota)
                     {
-                        LogFile.LogMessage("Не первый день и являемся MasterClient, спавним VideoCamera.");
-                        __instance.m_VideoCameraSpawner.SpawnMe(force: true);
+                        __instance.ShopHandler.InitShopHandler();
                     }
 
-                    if (__instance.m_SteamLobby != null)
-                    {
-                        LogFile.LogMessage("SteamLobby существует, открываем лобби.");
-                        __instance.m_SteamLobby.OpenLobby();
-                    }
-
-                    SpawnHandler.Instance.SpawnLocalPlayer(Spawns.House);
-                    LogFile.LogMessage("Спавним локального игрока в доме.");
+                    return false;
                 }
-                else
+                catch (Exception ex)
                 {
-                    LogFile.LogMessage("RoomStats не null.");
-                    Debug.Log("Should do next day here but waiting for upload?");
-                    if (TimeOfDayHandler.TimeOfDay == TimeOfDay.Evening)
+                    DebugCW.LogException(ex);
+
+                    if (Harmony.HasAnyPatches(harmony.Id))
                     {
-                        LogFile.LogMessage("Время суток - вечер.");
-                        RichPresenceHandler.SetPresenceState(RichPresenceState.Status_AtHouse);
-                        if (PhotonNetwork.IsMasterClient)
-                        {
-                            /*===========================================*/
-                            LogFile.LogMessage("Задержка началась...");
-                            yield return new WaitForSeconds(1f);
-                            LogFile.LogMessage("Задержка завершена.");
-                            /*===========================================*/
-
-                            LogFile.LogMessage("Являемся MasterClient, проверяем наличие камеры.");
-                            SurfaceNetworkHandler.ReturnedFromLostWorldWithCamera = __instance.CheckIfCameraIsPresent(includeBrokencamera: true);
-                            LogFile.LogMessage($"Наличие камеры после возвращения: {SurfaceNetworkHandler.ReturnedFromLostWorldWithCamera}");
-
-                            if (!SurfaceNetworkHandler.ReturnedFromLostWorldWithCamera)
-                            {
-                                LogFile.LogMessage("Камера отсутствует, сбрасываем апгрейды.");
-                                SurfaceNetworkHandler.RoomStats.ResetCameraUpgrades();
-                                if (PhotonNetwork.IsMasterClient)
-                                {
-                                    LogFile.LogMessage("Являемся MasterClient, устанавливаем цель GoToBedFailedObjective.");
-                                    PhotonGameLobbyHandler.Instance.SetCurrentObjective(new GoToBedFailedObjective());
-                                    if (SurfaceNetworkHandler.RoomStats.IsQuotaDay && !SurfaceNetworkHandler.RoomStats.CalculateIfReachedQuota())
-                                    {
-                                        LogFile.LogMessage("Сегодня день квоты и квота не выполнена, вызываем NextDay.");
-                                        __instance.NextDay();
-                                    }
-                                }
-                            }
-                            else if (PhotonNetwork.IsMasterClient)
-                            {
-                                LogFile.LogMessage("Камера присутствует, устанавливаем цель ExtractVideoObjective.");
-                                PhotonGameLobbyHandler.Instance.SetCurrentObjective(new ExtractVideoObjective());
-                            }
-
-                            if (!__instance.m_FailedQuota)
-                            {
-                                LogFile.LogMessage("Квота не провалена, проверяем наличие счёта из больницы.");
-                                __instance.CheckForHospitalBill();
-                            }
-                        }
-
-                        if (!Player.justDied && !__instance.m_FailedQuota)
-                        {
-                            LogFile.LogMessage("Игрок не умер и квота не провалена, спавним в DiveBell.");
-                            SpawnHandler.Instance.SpawnLocalPlayer(Spawns.DiveBell);
-                        }
+                        DebugCW.Log("Patch disabled");
+                        harmony.UnpatchSelf();
                     }
-                }
 
-                if (!__instance.m_FailedQuota)
-                {
-                    LogFile.LogMessage("Квота не провалена, инициализируем ShopHandler.");
-                    __instance.ShopHandler.InitShopHandler();
+                    HelmetText.Instance.SetHelmetText(
+                        $"Patch '{Assembly.GetExecutingAssembly().GetName().Name!}' - Disabled!\n" +
+                        "Please report the error to the mod developer.\n",
+                        3f
+                    );
+                    return true;
                 }
             }
         }
 
-        // Логирование для отладки
-        public class LogFile
+        public static void CheckCameraOnMasterClient(SurfaceNetworkHandler __instance)
         {
-            public static void LogMessage(string message)
+            DebugCW.Log("Waiting for the camera to appear...");
+            UnityMainThreadDispatcher.Instance().Enqueue(CheckCameraOnMasterClientCoroutine(__instance));
+        }
+
+        private static IEnumerator CheckCameraOnMasterClientCoroutine(SurfaceNetworkHandler __instance)
+        {
+            float maxWaitTime = 1f;
+            float elapsedTime = 0f;
+
+            while (!__instance.CheckIfCameraIsPresent(includeBrokencamera: true) && elapsedTime < maxWaitTime)
             {
-                string logFilePath = @"D:\\Mod_for_ContentWarning\\Mods\\Disable_Disappearance_Camera_In_Bell\\log.txt";
-                System.IO.File.AppendAllText(logFilePath, $"[{System.DateTime.Now}]: {message}\n");
+                DebugCW.Log($"Waiting... {elapsedTime}s");
+                yield return new WaitForSeconds(0.2f);
+                elapsedTime += 0.2f;
+
+                if (elapsedTime >= maxWaitTime)
+                {
+                    DebugCW.LogWarning("Camera not found...");
+                    break;
+                }
             }
+
+            UnityMainThreadDispatcher.Instance().Enqueue(CheckIfCameraIsPresentCoroutine(__instance));
+        }
+
+        public static IEnumerator CheckIfCameraIsPresentCoroutine(SurfaceNetworkHandler __instance)
+        {
+            SurfaceNetworkHandler.ReturnedFromLostWorldWithCamera = __instance.CheckIfCameraIsPresent(includeBrokencamera: true);
+            if (!SurfaceNetworkHandler.ReturnedFromLostWorldWithCamera)
+            {
+                SurfaceNetworkHandler.RoomStats.ResetCameraUpgrades();
+                if (PhotonNetwork.IsMasterClient)
+                {
+                    PhotonGameLobbyHandler.Instance.SetCurrentObjective(new GoToBedFailedObjective());
+                    if (SurfaceNetworkHandler.RoomStats.IsQuotaDay && !SurfaceNetworkHandler.RoomStats.CalculateIfReachedQuota())
+                    {
+                        __instance.NextDay();
+                    }
+                }
+            }
+            else if (PhotonNetwork.IsMasterClient)
+            {
+                PhotonGameLobbyHandler.Instance.SetCurrentObjective(new ExtractVideoObjective());
+            }
+
+            if (!__instance.m_FailedQuota)
+            {
+                __instance.CheckForHospitalBill();
+            }
+
+            yield return null;
         }
     }
 }
