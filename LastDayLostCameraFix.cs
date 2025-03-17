@@ -4,6 +4,7 @@ using Zorro.Core;
 using Photon.Pun;
 using System.Collections;
 using System.Reflection;
+using PimDeWitte.UnityMainThreadDispatcher;
 
 namespace LastDayLostCameraFix
 {
